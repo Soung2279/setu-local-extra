@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+from time import time
 from asyncio import events
 import os
 import random
@@ -5,12 +7,15 @@ import asyncio
 import time
 from  datetime import datetime
 
+from nonebot import get_bot
 from nonebot.exceptions import CQHttpError
 
 import hoshino
 from hoshino import R, Service, priv
 from hoshino.util import FreqLimiter, DailyNumberLimiter
 from hoshino.typing import CQEvent
+
+bot = get_bot()
 
 _max = 99  #每人日调用上限(次)
 _nlmt = DailyNumberLimiter(_max)
@@ -21,12 +26,11 @@ _flmt = FreqLimiter(_cd)
 recall_pic = True  #是否撤回图片
 PIC_SHOW_TIME = 40  #多少秒后撤回图片
 
-SETU_SETUP_TEXT = f'日上限{_max}次\n调用冷却{_cd}s\n是否撤回图片{recall_pic}\n{PIC_SHOW_TIME}s后撤回图片'
+setu_path = 'C:/Resources/img/setu/'  #填写你的本地涩图文件夹路径
 
 sv_help = '''
 本地涩图，基础版的涩图。图库质量高
 - [来点好看的/来点好康的]
-- [换弹夹]  自助重置上限
 - [查看本地涩图配置]  查看提供方配置设定
 - [查看本地涩图调用次数]  查看本地涩图被所有使用者调用的次数
 '''.strip()
@@ -45,19 +49,14 @@ sv = Service(
 async def bangzhu_setu(bot, ev):
     await bot.send(ev, sv_help, at_sender=True)
 
-
-@sv.on_fullmatch(["查看本地涩图配置", "查看本地涩图设置", "查看setu设置", "查看setu配置"])
-async def setu_setup_notice(bot, ev):
-    now = datetime.now()  #获取当前时间
-    hour = now.hour  #获取当前时间小时数
-    minute = now.minute  #获取当前时间分钟数
-    hour_str = f' {hour}' if hour<10 else str(hour)
-    minute_str = f' {minute}' if minute<10 else str(minute)
-    if not priv.check_priv(ev, priv.ADMIN):
-        sv.logger.warning(f"非管理者：{ev.user_id}尝试于{hour_str}点{minute_str}分查看本地涩图配置")  #记录在Log里面
-        await bot.send(ev, SETU_SETUP_TEXT)
-    else:
-        await bot.send(ev, SETU_SETUP_TEXT)
+def countFile(dir):
+    tmp = 0
+    for item in os.listdir(dir):
+        if os.path.isfile(os.path.join(dir, item)):
+            tmp += 1
+        else:
+            tmp += countFile(os.path.join(dir, item))
+    return tmp
 
 calltime = 0  #初始化调用次数
 
@@ -74,20 +73,34 @@ def set_callact(func):
 def callact_mark():  #调用次数记录
     pass
 
-@sv.on_fullmatch(('查看本地涩图调用次数', '查询本地涩图调用次数', '查询setu调用'))
-async def testdef(bot, ev):
+@sv.on_fullmatch(('检查本地setu', '检查本地涩图', '检查本地色图'))
+async def check_setu_local(bot, ev):
+    gid = ev['group_id']
     now = datetime.now()  #获取当前时间
     hour = now.hour  #获取当前时间小时数
     minute = now.minute  #获取当前时间分钟数
+    now_date = time.strftime("%Y-%m-%d", time.localtime()) #获取当前日期
     hour_str = f' {hour}' if hour<10 else str(hour)
     minute_str = f' {minute}' if minute<10 else str(minute)
+    image_api = await bot.can_send_image()  #检查是否能发送图片
+    image_check = image_api.get('yes')
+    image_all_num = countFile(setu_path)   #获取涩图路径下所有文件数量
     if not priv.check_priv(ev, priv.ADMIN):
-        sv.logger.warning(f"{ev.user_id}尝试于{hour_str}点{minute_str}分查看本地涩图调用次数, 已拒绝")
-        not_allowed_msg = f"权限不足。"
-        await bot.send(ev, not_allowed_msg, at_sender=True)
-    else:
-        CALLACT_TEXT = f'监测函数名：setu\n当前时间{now}\n自HoshinoBot上次启动以来，setu已被调用{calltime}次。\n\n#注意：此调用次数非本群次数，是bot所有使用者的公共次数'
-        await bot.send(ev, CALLACT_TEXT, at_sender=True)
+        sv.logger.warning(f"来自群：{gid}的非管理者：{ev.user_id}尝试于{now_date}{hour_str}点{minute_str}分检查本地色图")
+        await bot.send(ev, '一般通过群友不需要看这个啦，让管理员来试试看吧')
+        return
+
+    text1 = f"【发送权限检查】：\n是否能发送图片:{image_check}"
+    text2 = f"【数据存储检查】：\n截止{now_date}，本地涩图的存量为:{image_all_num}张"
+    SETU_SETUP_TEXT = f"【涩图设定情况】：\n当前bot主人设置的日上限为：{_max}次\n调用冷却为：{_cd}s\n是否撤回图片：{recall_pic}\n{PIC_SHOW_TIME}s后撤回图片"
+    CALLACT_TEXT = f"监测函数名：setu\n当前时间{now_date}{now}\n自HoshinoBot上次启动以来，setu已被调用{calltime}次。\n#注意：此调用次数非本群次数，是bot所有使用者的公共次数"
+    
+    checkfile = text1 + '\n' + text2
+    checksetu = SETU_SETUP_TEXT + '\n' + CALLACT_TEXT
+
+    await bot.send(ev, checkfile)
+    time.sleep(2)
+    await bot.send(ev, checksetu)
 
 setu_folder = R.img('setu/').path
 
@@ -107,9 +120,9 @@ def get_setu():
 @sv.on_fullmatch(('来点好看的', '来点好康的'))
 async def setu(bot, ev):
     uid = ev['user_id']
-    now = datetime.now()
-    hour = now.hour
-    minute = now.minute
+    now = datetime.now()  #获取当前时间
+    hour = now.hour  #获取当前时间小时数
+    minute = now.minute  #获取当前时间分钟数
     hour_str = f' {hour}' if hour<10 else str(hour)
     minute_str = f' {minute}' if minute<10 else str(minute)
     if not _nlmt.check(uid):
